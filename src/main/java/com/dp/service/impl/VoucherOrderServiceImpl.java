@@ -9,6 +9,7 @@ import com.dp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.dp.utils.RedisIdWorker;
 import com.dp.utils.UserHolder;
+import org.springframework.aop.framework.AopContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,7 +39,6 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
      * @return 返回消息
      */
     @Override
-    @Transactional
     public Result seckillVoucher(Long voucherId) {
         // 1.查询优惠券
         SeckillVoucher voucher = seckillVoucherService.getById(voucherId);
@@ -58,6 +58,17 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             return Result.fail("库存不足！");
         }
 
+        Long userId = UserHolder.getUser().getId();
+        synchronized (userId.toString().intern()) {//保证userid不会变
+            //暴露代理对象,Spring事务失效
+            IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
+            return proxy.createOrderByVoucherId(voucherId);//事务和锁范围要一致
+        }
+    }
+
+    @Override
+    @Transactional
+    public Result createOrderByVoucherId(Long voucherId) {
         Long userId = UserHolder.getUser().getId();
         Integer count = query().eq("user_id", userId).eq("voucher_id", voucherId).count();
         if(count > 0){
