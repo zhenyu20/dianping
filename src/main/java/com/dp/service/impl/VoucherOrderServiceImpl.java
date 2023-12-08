@@ -8,8 +8,10 @@ import com.dp.service.ISeckillVoucherService;
 import com.dp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.dp.utils.RedisIdWorker;
+import com.dp.utils.SimpleRedisLock;
 import com.dp.utils.UserHolder;
 import org.springframework.aop.framework.AopContext;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,6 +34,9 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     @Resource
     private RedisIdWorker redisIdWorker;
+
+    @Resource
+    private StringRedisTemplate stringRedisTemplate;
 
     /**
      * 秒杀优惠券
@@ -57,12 +62,18 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             // 库存不足
             return Result.fail("库存不足！");
         }
-
         Long userId = UserHolder.getUser().getId();
-        synchronized (userId.toString().intern()) {//保证userid不会变
-            //暴露代理对象,Spring事务失效
+        SimpleRedisLock lock = new SimpleRedisLock("voucherOrder" + userId,stringRedisTemplate);
+        boolean tried = lock.tryLock(1);
+        if(!tried){
+            return Result.fail("不能重复购买！");
+        }
+        try {
+            //暴露代理对象,否则Spring事务失效
             IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
             return proxy.createOrderByVoucherId(voucherId);//事务和锁范围要一致
+        }finally {
+            lock.unlock();
         }
     }
 
