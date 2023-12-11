@@ -10,6 +10,8 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.dp.utils.RedisIdWorker;
 import com.dp.utils.SimpleRedisLock;
 import com.dp.utils.UserHolder;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.aop.framework.AopContext;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -17,6 +19,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
 import java.time.LocalDateTime;
+import java.util.concurrent.TimeUnit;
+
+import static com.dp.utils.RedisConstants.LOCK_SHOP_KEY;
+import static com.dp.utils.RedisConstants.LOCK_SHOP_TTL;
 
 /**
  * <p>
@@ -36,7 +42,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     private RedisIdWorker redisIdWorker;
 
     @Resource
-    private StringRedisTemplate stringRedisTemplate;
+    private RedissonClient redissonClient;
 
     /**
      * 秒杀优惠券
@@ -63,8 +69,13 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             return Result.fail("库存不足！");
         }
         Long userId = UserHolder.getUser().getId();
-        SimpleRedisLock lock = new SimpleRedisLock("voucherOrder" + userId,stringRedisTemplate);
-        boolean tried = lock.tryLock(1);
+        RLock lock = redissonClient.getLock(LOCK_SHOP_KEY + userId);
+        boolean tried = false;
+        try {
+            tried = lock.tryLock(0,LOCK_SHOP_TTL, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
         if(!tried){
             return Result.fail("不能重复购买！");
         }
